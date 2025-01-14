@@ -1,5 +1,6 @@
 import re
 import platform
+import threading
 
 import pyvisa as visa
 
@@ -134,6 +135,7 @@ class SCPI_Instrument:
             handshake = "OK"
 
         self.handshake = handshake
+        self.__lock = threading.RLock()
 
     def __del__(self):
         """
@@ -294,9 +296,9 @@ class SCPI_Instrument:
         """
         if self.__inst is None:
             raise RuntimeError("Can not write, instrument not connected.")
-
-        resp = self.__inst.write(msg)
-        self._handle_handshake()
+        with self.__lock:
+            resp = self.__inst.write(msg)
+            self._handle_handshake()
 
         return resp
 
@@ -309,8 +311,8 @@ class SCPI_Instrument:
         """
         if self.__inst is None:
             raise RuntimeError("Can not read, instrument not connected")
-
-        resp = self.__inst.read()
+        with self.__lock:
+            resp = self.__inst.read()
         return resp
 
     def query(self, msg):
@@ -323,9 +325,9 @@ class SCPI_Instrument:
         """
         if self.__inst is None:
             raise RuntimeError("Can not query, instrument not connected")
-
-        resp = self.__inst.query(msg)
-        self._handle_handshake()
+        with self.__lock:
+            resp = self.__inst.query(msg)
+            self._handle_handshake()
         return resp
 
     def reset(self):
