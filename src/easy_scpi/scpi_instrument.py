@@ -260,7 +260,7 @@ class SCPI_Instrument:
         """
         return self.connected
 
-    def connect(self):
+    def connect(self,explicit_remote=False):
         """
         Connects to the instrument on the given port.
         """
@@ -276,8 +276,10 @@ class SCPI_Instrument:
 
         else:
             self.__inst.open()
-
-        self.id  # place instrument in remote control
+        if explicit_remote is False:
+            self.id  # place instrument in remote control
+        else:
+            self.write(explicit_remote)
 
     def disconnect(self):
         """
