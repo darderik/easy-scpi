@@ -1,7 +1,7 @@
 import re
 import platform
 import threading
-
+import time
 import pyvisa as visa
 
 
@@ -135,7 +135,7 @@ class SCPI_Instrument:
             handshake = "OK"
 
         self.handshake = handshake
-        self.__lock = threading.RLock()
+        self._lock = threading.RLock()
 
     def __del__(self):
         """
@@ -298,7 +298,7 @@ class SCPI_Instrument:
         """
         if self.__inst is None:
             raise RuntimeError("Can not write, instrument not connected.")
-        with self.__lock:
+        with self._lock:
             resp = self.__inst.write(msg)
             self._handle_handshake()
 
@@ -313,22 +313,30 @@ class SCPI_Instrument:
         """
         if self.__inst is None:
             raise RuntimeError("Can not read, instrument not connected")
-        with self.__lock:
+        with self._lock:
             resp = self.__inst.read()
         return resp
-
-    def query(self, msg):
+    def read_raw(self):
+        if self.__inst is None:
+            raise RuntimeError("Can not read, instrument not connected")
+        with self._lock:
+            resp = self.__inst.read_raw()
+        return resp
+    def query(self, msg, delay: float=0):
         """
         Delegates query to resource.
 
         :param msg: Message to send.
+        :param delay: Delay before sending the query.
         :returns: Response from the message.
         :raises RuntimeError: If an instrument is not connected.
         """
         if self.__inst is None:
             raise RuntimeError("Can not query, instrument not connected")
-        with self.__lock:
+        with self._lock:
             resp = self.__inst.query(msg)
+            if delay != 0:
+                time.sleep(delay)
             self._handle_handshake()
         return resp
 
