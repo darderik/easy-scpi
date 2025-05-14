@@ -3,8 +3,30 @@ import platform
 import threading
 import time
 import pyvisa as visa
+from typing import List, Union, Optional
+from functools import wraps
+from pyvisa.resources import Resource, MessageBasedResource
 
 
+# Decorators
+def requires_message_based(func):
+    """
+    Decorator to check if the instrument is a MessageBasedResource.
+    """
+
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        if not isinstance(self.__inst, MessageBasedResource):
+            raise TypeError(
+                f"The method '{func.__name__}' requires a MessageBasedResource, "
+                f"but got {type(self.__inst).__name__} instead."
+            )
+        return func(self, *args, **kwargs)
+
+    return wrapper
+
+
+# Classes
 class Property(object):
     """
     Represents a SCPI property of the instrument
@@ -13,22 +35,22 @@ class Property(object):
     ON = "ON"
     OFF = "OFF"
 
-    def __init__(self, inst, name, arg_separator=","):
+    def __init__(self, inst: Resource, name: str, arg_separator: str = ","):
         """
-        Represents a call to a SCPI instrument's proeprty or method.
+        Represents a call to a SCPI instrument's property or method.
 
         :param inst: A SCPI instrument resource.
         :param name: Name of the property.
             Used to recursively build the property call message.
         :param arg_separator: Separator to use to separate
-            methos arguments in a method call.
+            method arguments in a method call.
             [Default: ',']
         """
-        self.__inst = inst
+        self.__inst: Resource = inst
         self.name = name.upper()
         self.arg_separator = arg_separator
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         return Property(
             self.__inst,
             ":".join((self.name, name.upper())),
@@ -51,7 +73,7 @@ class Property(object):
             return self.__inst.write(self.name + args)
 
     @staticmethod
-    def val2bool(val):
+    def val2bool(val: bool | str) -> bool:
         """
         Converts standard input to boolean values
 
@@ -70,7 +92,7 @@ class Property(object):
         return bool(val)
 
     @staticmethod
-    def val2state(val):
+    def val2state(val: str | bool) -> str:
         """
         Converts standard input to SCPI state
 
@@ -98,12 +120,12 @@ class SCPI_Instrument:
 
     def __init__(
         self,
-        port=None,
-        port_match=True,
-        backend="",
-        handshake=False,
-        arg_separator=",",
-        prefix_cmds=False,
+        port: Optional[str] = None,
+        port_match: bool = True,
+        backend: str = "",
+        handshake: str | bool = False,
+        arg_separator: str = ",",
+        prefix_cmds: bool = False,
         **resource_params,
     ):
         """
@@ -119,17 +141,17 @@ class SCPI_Instrument:
             https://pyvisa.readthedocs.io/en/latest/api/resources.html
         :returns: An Instrument communicator.
         """
-        self.__backend = backend
+        self.__backend: str = backend
         self.__rm = visa.ResourceManager(backend)
-        self.__inst = None
-        self.__port = None
-        self.__port_match = port_match
-        self.__rid = None  # the resource id of the instrument
+        self.__inst: Optional[Resource] = None
+        self.__port: Optional[str] = None
+        self.__port_match: bool = port_match
+        self.__rid: Optional[str] = None  # the resource id of the instrument
         self.__resource_params = resource_params  # options for connection
 
-        self.port = port
-        self.arg_separator = arg_separator
-        self.prefix_cmds = prefix_cmds
+        self.port: Optional[str] = port
+        self.arg_separator: str = arg_separator
+        self.prefix_cmds: bool = prefix_cmds
 
         if handshake is True:
             handshake = "OK"
@@ -260,7 +282,7 @@ class SCPI_Instrument:
         """
         return self.connected
 
-    def connect(self,explicit_remote=False):
+    def connect(self, explicit_remote=False):
         """
         Connects to the instrument on the given port.
         """
@@ -316,18 +338,12 @@ class SCPI_Instrument:
         with self._lock:
             resp = self.__inst.read()
         return resp
-    def read_raw(self):
-        if self.__inst is None:
-            raise RuntimeError("Can not read, instrument not connected")
-        with self._lock:
-            resp = self.__inst.read_raw()
-        return resp
-    def query(self, msg, delay: float=0):
+
+    def query(self, msg):
         """
         Delegates query to resource.
 
         :param msg: Message to send.
-        :param delay: Delay before sending the query.
         :returns: Response from the message.
         :raises RuntimeError: If an instrument is not connected.
         """
@@ -335,8 +351,6 @@ class SCPI_Instrument:
             raise RuntimeError("Can not query, instrument not connected")
         with self._lock:
             resp = self.__inst.query(msg)
-            if delay != 0:
-                time.sleep(delay)
             self._handle_handshake()
         return resp
 
@@ -410,7 +424,7 @@ class SCPI_Instrument:
         resource = self._match_resource(resource_pattern) if match else resource_pattern
         self.__rid = resource
 
-    def _set_port_linux(self, port, match=True):
+    def _set_port_linux(self, port: str, match: bool = True):
         """
         Disconnects from current connection and updates port and id.
         Does not reconnect.
@@ -431,7 +445,7 @@ class SCPI_Instrument:
             resource_pattern = (
                 port
                 if port_name.endswith("INSTR") or port_name.endswith("SOCKET")
-                else f"{ port }::.*::INSTR"
+                else f"{port}::.*::INSTR"
             )
         else:
             # build resource pattern
@@ -470,3 +484,43 @@ class SCPI_Instrument:
 
         r_name = matches[0].group(0)
         return r_name
+
+    @requires_message_based
+    def read_raw(self, *args, **kwargs):
+        if self.__inst is None:
+            raise RuntimeError("Can not read, instrument not connected")
+        with self._lock:
+            resp = self.__inst.read_raw(*args, **kwargs)
+        return resp
+
+    @requires_message_based
+    def query_ascii_values(self, *args, **kwargs):
+        """
+        Delegates query to resource.
+
+        :param msg: Message to send.
+        :returns: Response from the message.
+        :raises RuntimeError: If an instrument is not connected.
+        """
+        if self.__inst is None:
+            raise RuntimeError("Can not query, instrument not connected")
+        with self._lock:
+            resp = self.__inst.query_ascii_values(*args, **kwargs)
+            self._handle_handshake()
+        return resp
+
+    @requires_message_based
+    def query_binary_values(self, *args, **kwargs):
+        """
+        Delegates query to resource.
+
+        :param msg: Message to send.
+        :returns: Response from the message.
+        :raises RuntimeError: If an instrument is not connected.
+        """
+        if self.__inst is None:
+            raise RuntimeError("Can not query, instrument not connected")
+        with self._lock:
+            resp = self.__inst.query_binary_values(*args, **kwargs)
+            self._handle_handshake()
+        return resp

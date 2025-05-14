@@ -5,3 +5,5 @@ easy_scpi.egg-info/
 __pycache__
 .venv
 .pytest_cache
+.conda/
+.mypy_cache/
